@@ -1,0 +1,42 @@
+// Housing terms used to classify property management related leads.
+export const HOUSING_KEYWORDS = [
+  "properties",
+  "realty",
+  "residential",
+  "apartments",
+  "management",
+  "mgmt",
+  "housing",
+  "living",
+  "communities",
+  "equity",
+  "homes",
+  "real estate",
+  "leasing",
+  "rentals",
+  "property",
+];
+
+// Healthcare terms used to classify medical practice related leads.
+export const HEALTHCARE_KEYWORDS = [
+  "health",
+  "medical",
+  "clinic",
+  "care",
+  "hospital",
+  "wellness",
+  "therapy",
+  "dental",
+  "ortho",
+  "pediatric",
+  "family practice",
+  "urgent care",
+  "pharmacy",
+  "physicians",
+  "associates",
+  "healthcare",
+  "clinics",
+  "medspa",
+  "surgery",
+  "rehab",
+];
