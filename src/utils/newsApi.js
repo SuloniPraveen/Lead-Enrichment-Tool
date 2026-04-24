@@ -1,7 +1,7 @@
 import { filterRelevantNewsHeadlineIndices } from "./claudeApi";
 
 // Healthcare-focused reputable domains for NewsAPI filtering.
-const HEALTHCARE_DOMAINS = [
+const HEALTHCARE_DOMAIN_LIST = [
   "modernhealthcare.com",
   "fiercehealthcare.com",
   "beckershospitalreview.com",
@@ -16,10 +16,12 @@ const HEALTHCARE_DOMAINS = [
   "wsj.com",
   "ft.com",
   "techcrunch.com",
-].join(",");
+  "healthleadersmedia.com",
+  "hfma.org",
+];
 
 // Housing and real estate industry domains for NewsAPI filtering.
-const HOUSING_DOMAINS = [
+const HOUSING_DOMAIN_LIST = [
   "multifamilyexecutive.com",
   "nmhc.org",
   "realpage.com",
@@ -34,10 +36,13 @@ const HOUSING_DOMAINS = [
   "ft.com",
   "housingwire.com",
   "therealdeal.com",
-].join(",");
+  "inman.com",
+  "multihousingnews.com",
+  "costar.com",
+];
 
 // General business press when vertical is unknown.
-const UNCLASSIFIED_DOMAINS = [
+const UNCLASSIFIED_DOMAIN_LIST = [
   "forbes.com",
   "reuters.com",
   "bloomberg.com",
@@ -45,7 +50,37 @@ const UNCLASSIFIED_DOMAINS = [
   "bizjournals.com",
   "ft.com",
   "techcrunch.com",
-].join(",");
+];
+
+const HEALTHCARE_DOMAINS = HEALTHCARE_DOMAIN_LIST.join(",");
+const HOUSING_DOMAINS = HOUSING_DOMAIN_LIST.join(",");
+const UNCLASSIFIED_DOMAINS = UNCLASSIFIED_DOMAIN_LIST.join(",");
+
+// Picks domain allowlist string based on detected vertical.
+const domainsForVertical = (vertical) => {
+  if (vertical === "Healthcare") return HEALTHCARE_DOMAINS;
+  if (vertical === "Housing") return HOUSING_DOMAINS;
+  return UNCLASSIFIED_DOMAINS;
+};
+
+const domainListForVertical = (vertical) => {
+  if (vertical === "Healthcare") return HEALTHCARE_DOMAIN_LIST;
+  if (vertical === "Housing") return HOUSING_DOMAIN_LIST;
+  return UNCLASSIFIED_DOMAIN_LIST;
+};
+
+// Keeps articles whose URL host is on the vertical allowlist (supports subdomains e.g. city.bizjournals.com).
+const filterByAllowedDomains = (articles, vertical) => {
+  const list = domainListForVertical(vertical);
+  return articles.filter((item) => {
+    try {
+      const host = new URL(item.url).hostname.toLowerCase().replace(/^www\./, "");
+      return list.some((d) => host === d || host.endsWith(`.${d}`));
+    } catch {
+      return false;
+    }
+  });
+};
 
 // Title keywords that usually indicate non-industry entertainment or sports noise.
 const IRRELEVANT_TITLE_KEYWORDS = [
@@ -71,13 +106,6 @@ const IRRELEVANT_TITLE_KEYWORDS = [
   "wedding",
   "pregnant",
 ];
-
-// Picks domain allowlist string based on detected vertical.
-const domainsForVertical = (vertical) => {
-  if (vertical === "Healthcare") return HEALTHCARE_DOMAINS;
-  if (vertical === "Housing") return HOUSING_DOMAINS;
-  return UNCLASSIFIED_DOMAINS;
-};
 
 // Builds ISO date strings for NewsAPI from and to parameters (last 30 days through today).
 const getNewsDateRange = () => {
@@ -117,34 +145,43 @@ const filterByRecencyAndTitle = (articles) => {
   });
 };
 
-// Calls NewsAPI everything endpoint with domain and date filters.
-const runNewsQuery = async ({ query, key, vertical }) => {
+const mapArticles = (payload) =>
+  (payload?.articles || []).map((article) => ({
+    title: article?.title || "Untitled",
+    description: article?.description || "",
+    sourceName: article?.source?.name || "Unknown source",
+    publishedAt: formatPublishedAt(article?.publishedAt),
+    publishedAtRaw: article?.publishedAt || "",
+    url: article?.url || "",
+  }));
+
+// Calls NewsAPI everything endpoint. When restrictDomains is false, omits domains= and filters client-side (recovers subdomain / API quirks).
+const runNewsQuery = async ({ query, key, vertical, restrictDomains = true }) => {
   try {
     const { fromDate, toDate } = getNewsDateRange();
-    const domains = domainsForVertical(vertical);
+    const domainQs = restrictDomains ? `&domains=${encodeURIComponent(domainsForVertical(vertical))}` : "";
     const endpoint =
       `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}` +
-      `&domains=${domains}` +
+      domainQs +
       `&from=${fromDate}&to=${toDate}` +
-      `&language=en&sortBy=publishedAt&pageSize=20&apiKey=${encodeURIComponent(key)}`;
+      `&language=en&sortBy=publishedAt&pageSize=40&apiKey=${encodeURIComponent(key)}`;
     const response = await fetch(endpoint);
     if (!response.ok) throw new Error("News API request failed");
     const payload = await response.json();
-    const mapped = (payload?.articles || []).map((article) => ({
-      title: article?.title || "Untitled",
-      description: article?.description || "",
-      sourceName: article?.source?.name || "Unknown source",
-      publishedAt: formatPublishedAt(article?.publishedAt),
-      publishedAtRaw: article?.publishedAt || "",
-      url: article?.url || "",
-    }));
+    if (payload?.status === "error") throw new Error(payload?.message || "News API error");
+    const mapped = mapArticles(payload);
     const withUrl = mapped.filter((item) => item.url);
-    const filtered = filterByRecencyAndTitle(withUrl);
+    const timeFiltered = filterByRecencyAndTitle(withUrl);
+    const filtered = restrictDomains ? timeFiltered : filterByAllowedDomains(timeFiltered, vertical);
     return filtered.length >= 1 ? filtered : [];
   } catch {
     return null;
   }
 };
+
+// Last resort: same query without domains= then keep only allowlisted hosts (often yields more than domains= alone).
+const runNewsQueryRelaxedDomains = async ({ query, key, vertical }) =>
+  runNewsQuery({ query, key, vertical, restrictDomains: false });
 
 // Applies Claude index filter so only industry-relevant headlines remain in the app.
 const applyClaudeRelevanceFilter = async ({
@@ -157,7 +194,8 @@ const applyClaudeRelevanceFilter = async ({
 }) => {
   if (!articles.length) return { relevant: [], hadCandidatesButNoRelevance: false };
   if (!anthropicApiKey?.trim()) {
-    return { relevant: [], hadCandidatesButNoRelevance: articles.length > 0 };
+    const capped = articles.slice(0, 5);
+    return { relevant: capped, hadCandidatesButNoRelevance: false };
   }
   const idxResult = await filterRelevantNewsHeadlineIndices({
     apiKey: anthropicApiKey,
@@ -180,7 +218,25 @@ const applyClaudeRelevanceFilter = async ({
   };
 };
 
-// Fetches reputable-domain news, filters locally, then Claude-filters for company and vertical relevance.
+const verticalFallbackQueries = (vertical) => {
+  if (vertical === "Healthcare") {
+    return [
+      "healthcare automation AI scheduling",
+      "hospital patient scheduling digital health",
+      "health system operations technology",
+    ];
+  }
+  if (vertical === "Housing") {
+    return [
+      "property management automation AI leasing",
+      "multifamily housing operations technology",
+      "apartment leasing software",
+    ];
+  }
+  return [];
+};
+
+// Fetches reputable-domain news, filters locally, then Claude-filters for company / vertical / market relevance.
 export const fetchRecentNews = async ({
   company,
   city,
@@ -211,16 +267,19 @@ export const fetchRecentNews = async ({
     };
   }
 
-  if (!candidates.length) {
-    const fallbackQ =
-      vertical === "Healthcare"
-        ? "healthcare automation AI scheduling"
-        : vertical === "Housing"
-          ? "property management automation AI leasing"
-          : null;
-    if (fallbackQ) {
-      const fb = await runNewsQuery({ query: fallbackQ, key, vertical });
-      if (fb === null) {
+  const tryCollect = async (rows) => {
+    if (rows === null) return false;
+    if (rows.length) {
+      candidates = rows;
+      return true;
+    }
+    return false;
+  };
+
+  if (!candidates.length && (vertical === "Housing" || vertical === "Healthcare")) {
+    for (const fq of verticalFallbackQueries(vertical)) {
+      const rows = await runNewsQuery({ query: fq, key, vertical });
+      if (rows === null) {
         return {
           status: "failed",
           articles: [],
@@ -228,7 +287,35 @@ export const fetchRecentNews = async ({
           note: "Unavailable -- continuing",
         };
       }
-      candidates = fb;
+      if (await tryCollect(rows)) break;
+    }
+  }
+
+  if (!candidates.length && (vertical === "Housing" || vertical === "Healthcare")) {
+    const relaxedCompany = await runNewsQueryRelaxedDomains({ query: companyTrim, key, vertical });
+    if (relaxedCompany === null) {
+      return {
+        status: "failed",
+        articles: [],
+        hadCandidatesButNoRelevance: false,
+        note: "Unavailable -- continuing",
+      };
+    }
+    await tryCollect(relaxedCompany);
+  }
+
+  if (!candidates.length && (vertical === "Housing" || vertical === "Healthcare")) {
+    for (const fq of verticalFallbackQueries(vertical)) {
+      const relaxed = await runNewsQueryRelaxedDomains({ query: fq, key, vertical });
+      if (relaxed === null) {
+        return {
+          status: "failed",
+          articles: [],
+          hadCandidatesButNoRelevance: false,
+          note: "Unavailable -- continuing",
+        };
+      }
+      if (await tryCollect(relaxed)) break;
     }
   }
 
@@ -252,7 +339,7 @@ export const fetchRecentNews = async ({
 
   if (!relevant.length) {
     return {
-      status: hadCandidatesButNoRelevance ? "none" : "none",
+      status: "none",
       articles: [],
       hadCandidatesButNoRelevance,
       note: null,

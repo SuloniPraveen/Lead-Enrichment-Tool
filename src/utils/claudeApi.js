@@ -87,11 +87,27 @@ export const filterRelevantNewsHeadlineIndices = async ({ apiKey, company, verti
   const headlineLines = articles.map((a, i) => `[${i}] ${a.title}`).join("\n");
   const result = await callClaude({
     apiKey,
-    maxTokens: 50,
+    maxTokens: 120,
     system:
       "You respond with only a JSON array of integers (indices). No markdown, no explanation, no extra text.",
-    userContent: `Given these news headlines, which ones are directly relevant to a company called ${company} in the ${vertical} industry in ${city}, ${state}? 
-Return only the indices of relevant headlines as a JSON array like [0, 2]. If none are relevant return [].
+    userContent: `You are helping a B2B sales rep research a prospect.
+
+Prospect company: ${company}
+Industry vertical: ${vertical}
+Location: ${city}, ${state}
+
+Which headline indices would materially help the rep have an informed conversation with this prospect?
+
+Include:
+- Headlines clearly about this company or its executives
+- Headlines about their industry, geography, regulation, technology, labor, or market conditions that plausibly affect a ${vertical.toLowerCase()} operator in this region (even if the company name is not in the title)
+
+Exclude:
+- Headlines with no plausible link to ${vertical} or to doing business in ${city}, ${state}
+- Tabloid or purely consumer topics unrelated to B2B operations
+
+Return only a JSON array of indices like [0, 2]. If none qualify return [].
+
 Headlines:
 ${headlineLines}`,
   });
