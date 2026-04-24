@@ -1,14 +1,4 @@
-# EliseAI Practical Assessment
-
----
-
-## Candidate Details
-
-| Field | Details |
-| --- | --- |
-| Name | Suloni Praveen |
-| Email | sulonipr@usc.edu |
-| Role Applied For | GTM Engineer  |
+# Lead Enrichment Tool
 
 ---
 
