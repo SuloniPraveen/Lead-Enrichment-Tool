@@ -18,6 +18,12 @@
 - Keys are never written to localStorage, sessionStorage, cookies, logs, URLs, or backend storage.
 - Do not add any API keys to Vercel environment variables. All keys are entered by the user in the browser at runtime and are never stored anywhere. The deployed app contains zero credentials.
 
+### NewsAPI and why news can look “broken” in the browser
+
+News is **not** fetched directly from `newsapi.org` in the browser. NewsAPI’s free developer tier only allows browser calls from **localhost**; deployed sites (Vercel, GitHub Pages, etc.) are blocked by **CORS**, so the request fails even with a valid key. Census, Wikipedia, and DataUSA still work because those endpoints allow browser origins.
+
+This project routes NewsAPI through a **same-origin proxy** at **`/api/news-proxy`** (`api/news-proxy.js` on Vercel, mirrored by the Vite dev server in `vite.config.js`). After deploy, news should load the same way as on `npm run dev`. If news is still empty for a lead, the company may simply have no hits in the last 30 days on the allowed business domains—that is different from a proxy or key error (the UI will show a short diagnostic when the proxy returns an error).
+
 ## Scoring Assumptions
 
 This assignment requires a transparent, non-black-box scoring model. Every score row in the app shows the detected value, points awarded, and plain-English reason.
@@ -169,44 +175,3 @@ This assignment requires a transparent, non-black-box scoring model. Every score
 - Email reply rate: compare Claude-assisted drafts vs manually written outreach
 - SDR adoption: track weekly active users and proportion of leads enriched
 
-## Video Walkthrough Script
-
-### Minute 0-1: Problem statement
-
-"SDRs currently spend 15 to 20 minutes manually researching each inbound lead before they can write a single outreach email. This tool reduces that to under 2 minutes by automatically pulling demographic data, scoring the lead, and drafting a personalized email the moment a rep hits a button."
-
-### Minute 1-3: Live demo
-
-- Load housing sample and click Enrich Lead
-- Walk through overview, score transparency, insights, and generated email
-- Repeat with healthcare sample
-
-### Minute 3-5: APIs and why each is used
-
-- Census ACS5 for renter rate and income
-- DataUSA for population cross-check
-- Wikipedia for city context
-- Claude for personalized, data-aware outreach
-
-### Minute 5-7: Scoring logic and assumptions
-
-- Explain each score signal row in the UI
-- Show why renter rate is key for housing
-- Show why population and market tier are key for healthcare
-- Reinforce transparent, explainable scoring
-
-### Minute 7-9: Outreach email walkthrough
-
-- Show generated email and the specific local data references
-- Contrast briefly with generic, non-personalized templates
-
-### Minute 9-11: Rollout plan
-
-- Highlight stakeholders, 8-week timeline, and measurable success metrics
-- Explain why trigger-based manual enrichment was chosen for this MVP
-
-### Minute 11-12: What comes next
-
-- CRM-native enrichment trigger on new lead creation
-- Rep feedback loop for score calibration
-- Optional scheduled overnight batch processing

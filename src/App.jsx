@@ -118,7 +118,8 @@ function App() {
     });
     if (showStatus) {
       if (newsResult.status === "no_key") markStepWithState(4, "skipped", "Skipped -- no API key provided");
-      else if (newsResult.status === "failed") markStepWithState(4, "unavailable", "Unavailable -- continuing");
+      else if (newsResult.status === "failed")
+        markStepWithState(4, "unavailable", newsResult.fetchError || "News request failed");
       else markStepDone(4);
     }
 
@@ -129,6 +130,7 @@ function App() {
       newsArticles: newsResult.articles,
       hadCandidatesButNoRelevance: newsResult.hadCandidatesButNoRelevance,
       newsStatus: newsResult.status,
+      newsFetchError: newsResult.fetchError ?? null,
     };
 
     const scoreResult = scoreLead({ lead: targetLead, vertical, marketData });

@@ -155,27 +155,61 @@ const mapArticles = (payload) =>
     url: article?.url || "",
   }));
 
-// Calls NewsAPI everything endpoint. When restrictDomains is false, omits domains= and filters client-side (recovers subdomain / API quirks).
+// Same-origin proxy (Vite dev server + Vercel /api) avoids NewsAPI browser CORS blocks on deployed apps.
+const fetchNewsViaProxy = async (searchParams) => {
+  const qs = new URLSearchParams(searchParams);
+  const response = await fetch(`/api/news-proxy?${qs.toString()}`);
+  const raw = await response.text();
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return {
+      ok: false,
+      articles: [],
+      reason: response.ok
+        ? "Unexpected response from news proxy"
+        : `News proxy HTTP ${response.status} (deploy this app with the /api/news-proxy route, or use npm run dev)`,
+    };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      articles: [],
+      reason: payload?.message || `News proxy HTTP ${response.status}`,
+    };
+  }
+  if (payload?.status === "error") {
+    return { ok: false, articles: [], reason: payload.message || "NewsAPI error" };
+  }
+  return { ok: true, payload };
+};
+
+// Calls NewsAPI via server proxy. When restrictDomains is false, omits domains= and filters client-side.
 const runNewsQuery = async ({ query, key, vertical, restrictDomains = true }) => {
   try {
     const { fromDate, toDate } = getNewsDateRange();
-    const domainQs = restrictDomains ? `&domains=${encodeURIComponent(domainsForVertical(vertical))}` : "";
-    const endpoint =
-      `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}` +
-      domainQs +
-      `&from=${fromDate}&to=${toDate}` +
-      `&language=en&sortBy=publishedAt&pageSize=40&apiKey=${encodeURIComponent(key)}`;
-    const response = await fetch(endpoint);
-    if (!response.ok) throw new Error("News API request failed");
-    const payload = await response.json();
-    if (payload?.status === "error") throw new Error(payload?.message || "News API error");
-    const mapped = mapArticles(payload);
+    const params = {
+      q: query,
+      from: fromDate,
+      to: toDate,
+      language: "en",
+      sortBy: "publishedAt",
+      pageSize: "40",
+      apiKey: key,
+    };
+    if (restrictDomains) {
+      params.domains = domainsForVertical(vertical);
+    }
+    const result = await fetchNewsViaProxy(params);
+    if (!result.ok) return { ok: false, articles: [], reason: result.reason };
+    const mapped = mapArticles(result.payload);
     const withUrl = mapped.filter((item) => item.url);
     const timeFiltered = filterByRecencyAndTitle(withUrl);
     const filtered = restrictDomains ? timeFiltered : filterByAllowedDomains(timeFiltered, vertical);
-    return filtered.length >= 1 ? filtered : [];
-  } catch {
-    return null;
+    return { ok: true, articles: filtered.length >= 1 ? filtered : [] };
+  } catch (e) {
+    return { ok: false, articles: [], reason: e?.message || "News request failed" };
   }
 };
 
@@ -252,79 +286,62 @@ export const fetchRecentNews = async ({
       articles: [],
       hadCandidatesButNoRelevance: false,
       note: "API key not provided",
+      fetchError: null,
     };
   }
 
   const companyTrim = (company || "").trim();
 
-  let candidates = await runNewsQuery({ query: companyTrim, key, vertical });
-  if (candidates === null) {
-    return {
-      status: "failed",
-      articles: [],
-      hadCandidatesButNoRelevance: false,
-      note: "Unavailable -- continuing",
-    };
-  }
+  let candidates = [];
+  let lastFailureReason = null;
 
-  const tryCollect = async (rows) => {
-    if (rows === null) return false;
-    if (rows.length) {
-      candidates = rows;
+  const tryAssign = (res) => {
+    if (!res.ok) {
+      lastFailureReason = res.reason || lastFailureReason;
+      return false;
+    }
+    if (res.articles.length) {
+      candidates = res.articles;
+      lastFailureReason = null;
       return true;
     }
     return false;
   };
 
+  tryAssign(await runNewsQuery({ query: companyTrim, key, vertical }));
+
   if (!candidates.length && (vertical === "Housing" || vertical === "Healthcare")) {
     for (const fq of verticalFallbackQueries(vertical)) {
-      const rows = await runNewsQuery({ query: fq, key, vertical });
-      if (rows === null) {
-        return {
-          status: "failed",
-          articles: [],
-          hadCandidatesButNoRelevance: false,
-          note: "Unavailable -- continuing",
-        };
-      }
-      if (await tryCollect(rows)) break;
+      if (tryAssign(await runNewsQuery({ query: fq, key, vertical }))) break;
     }
   }
 
   if (!candidates.length && (vertical === "Housing" || vertical === "Healthcare")) {
-    const relaxedCompany = await runNewsQueryRelaxedDomains({ query: companyTrim, key, vertical });
-    if (relaxedCompany === null) {
-      return {
-        status: "failed",
-        articles: [],
-        hadCandidatesButNoRelevance: false,
-        note: "Unavailable -- continuing",
-      };
-    }
-    await tryCollect(relaxedCompany);
+    tryAssign(await runNewsQueryRelaxedDomains({ query: companyTrim, key, vertical }));
   }
 
   if (!candidates.length && (vertical === "Housing" || vertical === "Healthcare")) {
     for (const fq of verticalFallbackQueries(vertical)) {
-      const relaxed = await runNewsQueryRelaxedDomains({ query: fq, key, vertical });
-      if (relaxed === null) {
-        return {
-          status: "failed",
-          articles: [],
-          hadCandidatesButNoRelevance: false,
-          note: "Unavailable -- continuing",
-        };
-      }
-      if (await tryCollect(relaxed)) break;
+      if (tryAssign(await runNewsQueryRelaxedDomains({ query: fq, key, vertical }))) break;
     }
   }
 
   if (!candidates.length) {
+    if (lastFailureReason) {
+      return {
+        status: "failed",
+        articles: [],
+        hadCandidatesButNoRelevance: false,
+        note: null,
+        fetchError: lastFailureReason,
+      };
+    }
     return {
       status: "none",
       articles: [],
       hadCandidatesButNoRelevance: false,
       note: null,
+      fetchError: null,
     };
   }
 
@@ -343,6 +360,7 @@ export const fetchRecentNews = async ({
       articles: [],
       hadCandidatesButNoRelevance,
       note: null,
+      fetchError: null,
     };
   }
 
@@ -351,5 +369,6 @@ export const fetchRecentNews = async ({
     articles: relevant,
     hadCandidatesButNoRelevance: false,
     note: null,
+    fetchError: null,
   };
 };

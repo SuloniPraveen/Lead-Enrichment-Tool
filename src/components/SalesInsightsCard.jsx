@@ -73,13 +73,27 @@ const SalesInsightsCard = ({ vertical, marketData, lead, newsAnalysis }) => {
           <p className="text-sm text-slate-700">
             No relevant industry news found for this company in the last 30 days
           </p>
+        ) : marketData.newsStatus === "failed" ? (
+          <div className="text-sm text-slate-700">
+            <p className="font-semibold text-amber-800">News could not be loaded</p>
+            <p className="mt-1">
+              The NewsAPI key is set, but the request did not return articles. This app loads news through a
+              same-origin proxy so it works on deployed sites (NewsAPI blocks most browser origins). Use{" "}
+              <code className="rounded bg-slate-100 px-1">npm run dev</code> or deploy on Vercel with the{" "}
+              <code className="rounded bg-slate-100 px-1">api/news-proxy.js</code> route.
+            </p>
+            {marketData.newsFetchError ? (
+              <p className="mt-2 rounded-md bg-slate-100 p-2 font-mono text-xs text-slate-600">
+                {marketData.newsFetchError}
+              </p>
+            ) : null}
+          </div>
         ) : marketData.newsStatus === "no_key" ? (
-          <p className="text-sm text-slate-700">
-            No relevant recent news found for this company or market
-          </p>
+          <p className="text-sm text-slate-700">Add a NewsAPI key to load recent industry headlines for this lead.</p>
         ) : (
           <p className="text-sm text-slate-700">
-            No relevant recent news found for this company or market
+            No relevant recent news matched this company in the last 30 days on the allowed business sources (try a
+            larger national operator name in the company field to test).
           </p>
         )}
       </div>

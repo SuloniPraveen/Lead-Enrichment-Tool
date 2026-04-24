@@ -105,6 +105,14 @@ const buildNewsRow = ({ marketData, newsBonus, baseScore }) => {
       "Add NewsAPI key to enable this signal"
     );
   }
+  if (marketData.newsStatus === "failed") {
+    return row(
+      "Recent News Activity",
+      marketData.newsFetchError || "News request failed",
+      0,
+      "News is loaded via this app’s server proxy (/api/news-proxy). If this persists, confirm your NewsAPI key and plan limits."
+    );
+  }
   if (newsBonus === 5 && baseScore < 95) {
     return row(
       "Recent News Activity",
