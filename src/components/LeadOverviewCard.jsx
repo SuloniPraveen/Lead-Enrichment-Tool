@@ -37,7 +37,9 @@ const LeadOverviewCard = ({ lead, vertical, scoreResult, countryNote, aiScoreSum
       <p className="mt-1 text-sm text-slate-700">
         {aiScoreSummary?.status === "ok"
           ? aiScoreSummary.summary
-          : "AI analysis unavailable"}
+          : aiScoreSummary?.error
+            ? `Could not generate summary: ${aiScoreSummary.error}`
+            : "AI analysis unavailable"}
       </p>
     </div>
   );

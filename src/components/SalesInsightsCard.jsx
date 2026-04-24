@@ -102,7 +102,9 @@ const SalesInsightsCard = ({ vertical, marketData, lead, newsAnalysis }) => {
         <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
           <p className="text-sm font-semibold text-slate-800">AI News Analysis</p>
           {newsAnalysis?.status !== "ok" ? (
-            <p className="mt-1 text-sm text-slate-700">AI analysis unavailable</p>
+            <p className="mt-1 text-sm text-slate-700">
+              {newsAnalysis?.error ? `Could not analyze news: ${newsAnalysis.error}` : "AI analysis unavailable"}
+            </p>
           ) : (
             <div className="mt-2 space-y-2 text-sm text-slate-700">
               <p>

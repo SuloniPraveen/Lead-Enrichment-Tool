@@ -21,8 +21,12 @@ const OutreachEmailCard = ({ emailResult }) => {
         </p>
       ) : emailResult?.status !== "ok" ? (
         <div>
-          <p className="text-sm text-slate-700">AI analysis unavailable</p>
-          <p className="mt-1 text-sm text-slate-700">Email generation failed. Check your API key and try again.</p>
+          <p className="text-sm text-slate-700">Email generation failed.</p>
+          <p className="mt-1 text-sm text-slate-700">
+            {emailResult?.error
+              ? emailResult.error
+              : "Check your Anthropic API key, billing, and model access, then try again."}
+          </p>
         </div>
       ) : (
         <div>

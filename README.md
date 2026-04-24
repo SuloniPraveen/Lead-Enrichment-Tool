@@ -22,7 +22,9 @@
 
 News is **not** fetched directly from `newsapi.org` in the browser. NewsAPI’s free developer tier only allows browser calls from **localhost**; deployed sites (Vercel, GitHub Pages, etc.) are blocked by **CORS**, so the request fails even with a valid key. Census, Wikipedia, and DataUSA still work because those endpoints allow browser origins.
 
-This project routes NewsAPI through a **same-origin proxy** at **`/api/news-proxy`** (`api/news-proxy.js` on Vercel, mirrored by the Vite dev server in `vite.config.js`). After deploy, news should load the same way as on `npm run dev`. If news is still empty for a lead, the company may simply have no hits in the last 30 days on the allowed business domains—that is different from a proxy or key error (the UI will show a short diagnostic when the proxy returns an error).
+This project routes NewsAPI through a **same-origin proxy** at **`/api/news-proxy`** (`api/news-proxy.js` on Vercel, mirrored by the Vite dev server in `vite.config.js`). The proxy builds the upstream URL from **`req.url`** (query string included), because **`req.query` is not always populated** on Vercel for this route—an empty forward request would silently return no articles. If the proxy is missing or returns HTML (404), the client **falls back to a direct NewsAPI call**, which only succeeds where NewsAPI allows browser CORS (typically **localhost**).
+
+Anthropic calls stay **browser → `api.anthropic.com`** (unchanged by the news proxy). Default Claude model is **`claude-opus-4-5`**; set **`VITE_CLAUDE_MODEL`** at build time if your org uses another model id.
 
 ## Scoring Assumptions
 

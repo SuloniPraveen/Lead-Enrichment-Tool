@@ -1,5 +1,5 @@
-// Server-side forwarder for NewsAPI. Browser calls cannot hit newsapi.org from most
-// deployed origins (CORS); this route runs on the host (e.g. Vercel) without CORS limits.
+// Server-side forwarder for NewsAPI (avoids browser CORS on deployed sites).
+// Build query from req.url — Vercel often does not populate req.query for /api routes.
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "HEAD") {
@@ -9,11 +9,16 @@ export default async function handler(req, res) {
 
   try {
     const forward = new URL("https://newsapi.org/v2/everything");
-    const q = req.query || {};
-    for (const [key, raw] of Object.entries(q)) {
-      const val = Array.isArray(raw) ? raw[0] : raw;
-      if (val === undefined || val === null) continue;
-      forward.searchParams.set(key, String(val));
+    const host = req.headers?.host || "localhost";
+    const incoming = new URL(req.url || "/", `https://${host}`);
+    incoming.searchParams.forEach((value, key) => {
+      forward.searchParams.set(key, value);
+    });
+    if (req.query && typeof req.query === "object") {
+      for (const [key, raw] of Object.entries(req.query)) {
+        const val = Array.isArray(raw) ? raw[0] : raw;
+        if (val !== undefined && val !== null) forward.searchParams.set(key, String(val));
+      }
     }
 
     const upstream = await fetch(forward.toString());

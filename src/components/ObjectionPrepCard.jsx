@@ -23,7 +23,9 @@ const ObjectionPrepCard = ({ objectionPrep }) => {
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="mb-4 text-lg font-semibold text-slate-800">Objection Prep</h3>
       {objectionPrep?.status !== "ok" || !items ? (
-        <p className="text-sm text-slate-700">AI analysis unavailable</p>
+        <p className="text-sm text-slate-700">
+          {objectionPrep?.error ? `Could not generate prep: ${objectionPrep.error}` : "AI analysis unavailable"}
+        </p>
       ) : (
         <div className="space-y-4">
           <div>

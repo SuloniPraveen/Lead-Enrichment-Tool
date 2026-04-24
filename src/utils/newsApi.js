@@ -155,11 +155,9 @@ const mapArticles = (payload) =>
     url: article?.url || "",
   }));
 
-// Same-origin proxy (Vite dev server + Vercel /api) avoids NewsAPI browser CORS blocks on deployed apps.
-const fetchNewsViaProxy = async (searchParams) => {
-  const qs = new URLSearchParams(searchParams);
-  const response = await fetch(`/api/news-proxy?${qs.toString()}`);
-  const raw = await response.text();
+// Prefer same-origin proxy (Vercel /api + Vite dev). If the proxy is missing or returns junk (e.g. HTML 404),
+// fall back to direct NewsAPI — that only works where NewsAPI allows browser CORS (typically localhost).
+const parseNewsFetchPayload = (response, raw) => {
   let payload;
   try {
     payload = JSON.parse(raw);
@@ -168,21 +166,46 @@ const fetchNewsViaProxy = async (searchParams) => {
       ok: false,
       articles: [],
       reason: response.ok
-        ? "Unexpected response from news proxy"
-        : `News proxy HTTP ${response.status} (deploy this app with the /api/news-proxy route, or use npm run dev)`,
+        ? "Unexpected response from news (non-JSON — is /api/news-proxy deployed?)"
+        : `News HTTP ${response.status}`,
     };
   }
   if (!response.ok) {
     return {
       ok: false,
       articles: [],
-      reason: payload?.message || `News proxy HTTP ${response.status}`,
+      reason: payload?.message || `News HTTP ${response.status}`,
     };
   }
   if (payload?.status === "error") {
     return { ok: false, articles: [], reason: payload.message || "NewsAPI error" };
   }
   return { ok: true, payload };
+};
+
+const fetchNewsViaProxy = async (searchParams) => {
+  const qs = new URLSearchParams(searchParams).toString();
+  const tryUrl = async (url) => {
+    try {
+      const response = await fetch(url);
+      const raw = await response.text();
+      return parseNewsFetchPayload(response, raw);
+    } catch (e) {
+      return { ok: false, articles: [], reason: e?.message || "News network error" };
+    }
+  };
+
+  const proxyResult = await tryUrl(`/api/news-proxy?${qs}`);
+  if (proxyResult.ok) return proxyResult;
+
+  const directResult = await tryUrl(`https://newsapi.org/v2/everything?${qs}`);
+  if (directResult.ok) return directResult;
+
+  return {
+    ok: false,
+    articles: [],
+    reason: proxyResult.reason || directResult.reason || "News unavailable",
+  };
 };
 
 // Calls NewsAPI via server proxy. When restrictDomains is false, omits domains= and filters client-side.
@@ -239,7 +262,11 @@ const applyClaudeRelevanceFilter = async ({
     state,
     articles,
   });
-  if (idxResult.status === "failed" || !idxResult.indices?.length) {
+  if (idxResult.status === "failed") {
+    const capped = articles.slice(0, 5);
+    return { relevant: capped, hadCandidatesButNoRelevance: false };
+  }
+  if (!idxResult.indices?.length) {
     return { relevant: [], hadCandidatesButNoRelevance: articles.length > 0 };
   }
   const relevant = idxResult.indices

@@ -1,3 +1,6 @@
+// Override with VITE_CLAUDE_MODEL in .env if your org standardizes on another GA model.
+const CLAUDE_MESSAGES_MODEL = import.meta.env.VITE_CLAUDE_MODEL || "claude-opus-4-5";
+
 // Formats fetched news into compact text blocks for Claude prompts.
 const formatNewsForPrompt = (articles = []) =>
   articles
@@ -62,22 +65,34 @@ const callClaude = async ({ apiKey, system, userContent, maxTokens }) => {
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-5",
+        model: CLAUDE_MESSAGES_MODEL,
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: userContent }],
       }),
     });
 
-    if (!response.ok) {
-      return { status: "failed", text: null, error: "Claude request failed" };
+    const raw = await response.text();
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return {
+        status: "failed",
+        text: null,
+        error: response.ok ? "Claude returned non-JSON response" : `Claude HTTP ${response.status}`,
+      };
     }
 
-    const payload = await response.json();
+    if (!response.ok) {
+      const msg = payload?.error?.message || `Claude HTTP ${response.status}`;
+      return { status: "failed", text: null, error: msg };
+    }
+
     const text = payload?.content?.find((item) => item.type === "text")?.text || null;
     return { status: text ? "ok" : "failed", text, error: text ? null : "Claude returned no text" };
-  } catch {
-    return { status: "failed", text: null, error: "Claude request failed" };
+  } catch (e) {
+    return { status: "failed", text: null, error: e?.message || "Claude request failed" };
   }
 };
 
@@ -179,13 +194,21 @@ Outreach Timing: [one sentence on whether now is a good or bad time to reach out
 
 If the headlines are not relevant to this specific company or city, say so plainly in each field instead of analyzing unrelated news.`,
   });
-  if (result.status !== "ok") return { status: result.status, keySignal: null, companyTrajectory: null, outreachTiming: null };
+  if (result.status !== "ok")
+    return {
+      status: result.status,
+      keySignal: null,
+      companyTrajectory: null,
+      outreachTiming: null,
+      error: result.error,
+    };
   const parsed = parseNewsAnalysisText(result.text);
   return {
     status: "ok",
     keySignal: parsed.keySignal || "AI analysis unavailable",
     companyTrajectory: parsed.companyTrajectory || "AI analysis unavailable",
     outreachTiming: parsed.outreachTiming || "AI analysis unavailable",
+    error: null,
   };
 };
 
@@ -217,7 +240,7 @@ ${breakdown}
 
 Write 2 to 3 sentences explaining what this score means for the rep. Should they prioritize this lead? What is the strongest reason to reach out and what is the biggest risk or gap?`,
   });
-  return { status: result.status, summary: result.text || null };
+  return { status: result.status, summary: result.text || null, error: result.error };
 };
 
 // Predicts two likely prospect objections and one-sentence responses.
@@ -241,6 +264,6 @@ Response 1: [one sentence on how the rep should respond]
 Objection 2: [the second most likely objection]
 Response 2: [one sentence on how the rep should respond]`,
   });
-  if (result.status !== "ok") return { status: result.status, text: null };
-  return { status: "ok", text: result.text || null };
+  if (result.status !== "ok") return { status: result.status, text: null, error: result.error };
+  return { status: "ok", text: result.text || null, error: null };
 };
